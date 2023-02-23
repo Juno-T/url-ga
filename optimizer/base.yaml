@@ -1,0 +1,5 @@
+# @package optimizer
+_target_: optimizer.base.BaseSkillOptimizer
+name: BaseSkillOptimizer
+
+agent: ???

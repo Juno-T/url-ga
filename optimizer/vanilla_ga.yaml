@@ -1,0 +1,11 @@
+# @package optimizer
+_target_: optimizer.vanilla_ga.VanillaGA
+name: vanilla_ga
+
+agent: ???
+strategy: one_cover # one_cover, rand_cover, re_cover
+pop_size: 100
+elite_size: 10
+mutation_prob: 0.05
+ep_len: 1000
+device: ???

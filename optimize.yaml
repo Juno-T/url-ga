@@ -1,9 +1,10 @@
 defaults:
   - agent: diayn
+  - optimizer: vanilla_ga
   - override hydra/launcher: submitit_local
 
-# method
-method: GA_default # [GA_default, GA_recov]
+concurrent_training: false
+
 # mode
 reward_free: false
 # task settings
@@ -17,9 +18,9 @@ num_train_frames: 2000010
 num_seed_frames: 4000
 # eval
 eval_every_frames: 10000
-num_eval_episodes: 10
+num_eval_episodes: 1
 # pretrained
-snapshot_ts: 100000
+snapshot_ts: 500000
 snapshot_base_dir: ./models
 # replay buffer
 replay_buffer_size: 1000000
@@ -30,10 +31,11 @@ update_encoder: false # can be either true or false depending if we want to fine
 # misc
 seed: 1
 device: cuda
-save_video: true
+save_video: false
 save_train_video: false
 use_tb: false
 use_wandb: false
+wandb_group: optimize
 # experiment
 experiment: exp
 
