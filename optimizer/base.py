@@ -20,6 +20,12 @@ class BaseSkillOptimizer():
         meta_list = [OrderedDict(skill = ma) for ma in meta_array]
         return meta_list
     
+    def gen_skills_from_meta(self, meta):
+        if isinstance(meta, list):
+            meta = np.array([m['skill'] for m in meta])
+        skills = np.argmax(meta, axis=1)
+        return skills
+    
     def get_random_meta(self, length=1000):
         return self.gen_meta_from_skills(np.random.randint(self.skill_dim, size=(length,)))
     

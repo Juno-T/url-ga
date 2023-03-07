@@ -20,16 +20,20 @@ import utils
 from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
 from video import TrainVideoRecorder, VideoRecorder
+from optimizer.base import BaseSkillOptimizer
 
 torch.backends.cudnn.benchmark = True
 
 
-def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
+def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg, single_skill):
     cfg.obs_type = obs_type
     cfg.obs_shape = obs_spec.shape
     cfg.action_shape = action_spec.shape
     cfg.num_expl_steps = num_expl_steps
-    return hydra.utils.instantiate(cfg)
+    agent = hydra.utils.instantiate(cfg)
+    if single_skill:
+        agent.update_skill_every_step = -1
+    return agent
 
 
 class Workspace:
@@ -48,7 +52,7 @@ class Workspace:
                 cfg.experiment, "finetune", cfg.agent.name, cfg.task, cfg.obs_type,
                 str(cfg.seed)
             ])
-            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name, tags=["finetune"])
+            wandb.init(project="urlb", group=cfg.wandb_group, name=exp_name, tags=["finetune"])
         
         self.logger = Logger(self.work_dir,
                              use_tb=cfg.use_tb,
@@ -65,7 +69,9 @@ class Workspace:
                                 self.train_env.observation_spec(),
                                 self.train_env.action_spec(),
                                 cfg.num_seed_frames // cfg.action_repeat,
-                                cfg.agent)
+                                cfg.agent,
+                                cfg.single_skill)
+        self.tmp_optim = BaseSkillOptimizer(self.agent)
 
         # initialize from pretrained
         if cfg.snapshot_ts > 0:
@@ -251,15 +257,13 @@ class Workspace:
         if payload is not None:
             return payload
         # otherwise try random seed
-        attempt=15
-        while True:
-            seed = np.random.randint(1, 11)
-            payload = try_load(seed)
+        # attempt=15
+        for s in range(0, 11):
+            payload = try_load(s)
             if payload is not None:
                 return payload
-            attempt-=1
-            if not attempt:
-                raise(Exception("Cannot load from snapshot"))
+            # attempt-=1
+        raise(Exception("Cannot load from snapshot"))
         return None
 
 

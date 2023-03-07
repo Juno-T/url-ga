@@ -2,6 +2,8 @@ defaults:
   - agent: ddpg
   - override hydra/launcher: submitit_local
 
+single_skill: True
+
 # mode
 reward_free: false
 # task settings
@@ -32,6 +34,7 @@ save_video: true
 save_train_video: false
 use_tb: false
 use_wandb: false
+wandb_group: finetune_single_skill
 # experiment
 experiment: exp
 
