@@ -7,6 +7,7 @@ import os
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 os.environ['MUJOCO_GL'] = 'egl'
 
+from collections import OrderedDict
 from pathlib import Path
 
 import hydra
@@ -26,16 +27,16 @@ from optimizer.base import BaseSkillOptimizer
 torch.backends.cudnn.benchmark = True
 
 
-def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
+def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg, single_skill):
     cfg.obs_type = obs_type
     cfg.obs_shape = obs_spec.shape
     cfg.action_shape = action_spec.shape
     cfg.num_expl_steps = num_expl_steps
-    return hydra.utils.instantiate(cfg)
+    agent = hydra.utils.instantiate(cfg)
+    if single_skill:
+        agent.update_skill_every_step = -1
+    return agent
 
-def make_optimizer(agent, device, cfg):
-    cfg.device = device
-    return hydra.utils.instantiate(cfg, agent=agent)
 
 class Workspace:
     def __init__(self, cfg):
@@ -47,21 +48,17 @@ class Workspace:
         self.device = torch.device(cfg.device)
 
         # create logger
+
         if cfg.use_wandb:
-            domain, _ = cfg.task.split('_', 1)
             exp_name = '_'.join([
-                cfg.experiment, "optimize", cfg.agent.name, cfg.task, cfg.obs_type,
+                cfg.experiment, "record_skills", cfg.agent.name, cfg.task, cfg.obs_type,
                 str(cfg.seed)
             ])
-            tags=["optimize", str(cfg.task), domain, str(cfg.experiment), str(cfg.optimizer.name)]
-            if cfg.concurrent_training:
-                tags.append("concurrent_training")
-            print(exp_name, tags)
             wandb.init(
                 project="urlb", 
                 group=cfg.wandb_group, 
                 name=exp_name, 
-                tags=tags,
+                tags=["record_skills"],
                 config=OmegaConf.to_container(cfg))
         
         self.logger = Logger(self.work_dir,
@@ -79,10 +76,9 @@ class Workspace:
                                 self.train_env.observation_spec(),
                                 self.train_env.action_spec(),
                                 cfg.num_seed_frames // cfg.action_repeat,
-                                cfg.agent)
-        
-        # create optimizer
-        self.optim = make_optimizer(self.agent, cfg.device, cfg.optimizer)
+                                cfg.agent,
+                                cfg.single_skill)
+        self.tmp_optim = BaseSkillOptimizer(self.agent)
 
         # initialize from pretrained
         if cfg.snapshot_ts > 0:
@@ -122,7 +118,6 @@ class Workspace:
         self.timer = utils.Timer()
         self._global_step = 0
         self._global_episode = 0
-        self._global_generation = 0
 
     @property
     def global_step(self):
@@ -142,31 +137,36 @@ class Workspace:
             self._replay_iter = iter(self.replay_loader)
         return self._replay_iter
 
-    def eval(self, top_performer = False):
+    def record_skills(self):
+        tmp = self.agent.update_skill_every_step
+        self.agent.update_skill_every_step = -1
+        for skill_num in range(self.agent.skill_dim):
+            meta = OrderedDict()
+            skill = np.zeros(self.agent.skill_dim, dtype=np.float32)
+            skill[skill_num] = 1.0
+            meta['skill'] = skill
+            self.agent.meta_constant = meta
+            self.eval()
+        self.agent.meta_constant = None
+        self.agent.update_skill_every_step = tmp
+
+    def eval(self):
         step, episode, total_reward = 0, 0, 0
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
-        meta_list = self.optim.pop_top_performer
-        if top_performer:
-            meta_list = self.optim.top_performer
-        if meta_list is None: # Not started yet
-            return
-        
+        meta = self.agent.init_meta()
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
-            step_count = 0
             self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
-                assert step_count<len(meta_list), "meta_list overflow"
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     action = self.agent.act(time_step.observation,
-                                            meta_list[step_count],
+                                            meta,
                                             self.global_step,
                                             eval_mode=True)
                 time_step = self.eval_env.step(action)
                 self.video_recorder.record(self.eval_env)
                 total_reward += time_step.reward
                 step += 1
-                step_count += 1
 
             episode += 1
             self.video_recorder.save(f'{self.global_frame}.mp4')
@@ -176,115 +176,6 @@ class Workspace:
             log('episode_length', step * self.cfg.action_repeat / episode)
             log('episode', self.global_episode)
             log('step', self.global_step)
-            log('generation', self._global_generation)
-        wandb.log({'eval/skills': wandb.Histogram(self.optim.gen_skills_from_meta(meta_list))})
-        
-    def optimize(self):
-        print("\n\nStart Optimizing...\n\n")
-        # predicates
-        train_until_step = utils.Until(self.cfg.num_train_frames,
-                                       self.cfg.action_repeat)
-        seed_until_step = utils.Until(self.cfg.num_seed_frames,
-                                      self.cfg.action_repeat)
-        eval_every_step = utils.Every(self.cfg.eval_every_frames,
-                                      self.cfg.action_repeat)
-
-        episode_step, episode_reward = 0, 0
-        time_step = self.train_env.reset()
-        # meta = self.agent.init_meta()
-        metas_pop = self.optim.ask()
-        pop_i=0
-        metas = metas_pop[pop_i]
-        pop_i+=1
-        step_fitnesses = []
-        step_fitness = []
-        meta = metas[episode_step]
-
-
-        self.replay_storage.add(time_step, meta)
-        self.train_video_recorder.init(time_step.observation)
-        metrics = None
-        while train_until_step(self.global_step):
-            if time_step.last():
-                self._global_episode += 1
-                self.train_video_recorder.save(f'{self.global_frame}.mp4')
-                # wait until all the metrics schema is populated
-                if (not self.cfg.concurrent_training) or (metrics is not None):
-                    # if metrics is not None:
-                    #     # log stats
-                    elapsed_time, total_time = self.timer.reset()
-                    episode_frame = episode_step * self.cfg.action_repeat
-                    with self.logger.log_and_dump_ctx(self.global_frame,
-                                                        ty='train') as log:
-                        log('fps', episode_frame / elapsed_time)
-                        log('total_time', total_time)
-                        log('episode_reward', episode_reward)
-                        log('episode_length', episode_frame)
-                        log('episode', self.global_episode)
-                        log('buffer_size', len(self.replay_storage))
-                        log('step', self.global_step)
-                        log('generation', self._global_generation)
-
-                # reset env
-                time_step = self.train_env.reset()
-                # meta = self.agent.init_meta()
-                step_fitnesses.append(step_fitness)
-                if pop_i==len(metas_pop):
-                    self._global_generation+=1
-                    self.optim.tell(step_fitnesses)
-                    metas_pop = self.optim.ask()
-                    pop_i=0
-                    metas = metas_pop[pop_i]
-                    pop_i+=1
-                    step_fitnesses = []
-                    step_fitness = []
-                    self.logger.log('eval_total_time', self.timer.total_time(),
-                                    self.global_frame)
-                    self.eval()
-                else:
-                    metas = metas_pop[pop_i]
-                    pop_i+=1
-                    step_fitness = []
-                    
-
-                self.replay_storage.add(time_step, meta)
-                self.train_video_recorder.init(time_step.observation)
-
-                episode_step = 0
-                episode_reward = 0
-
-            # # try to evaluate
-            # if eval_every_step(self.global_step):
-            #     self.logger.log('eval_total_time', self.timer.total_time(),
-            #                     self.global_frame)
-            #     self.eval()
-
-            # meta = self.agent.update_meta(meta, self.global_step, time_step)
-            meta = metas[episode_step]
-
-
-            # sample action
-            with torch.no_grad(), utils.eval_mode(self.agent):
-                action = self.agent.act(time_step.observation,
-                                        meta,
-                                        self.global_step,
-                                        eval_mode=False)
-
-            # # try to update the agent
-            if self.cfg.concurrent_training:
-                if not seed_until_step(self.global_step):
-                    metrics = self.agent.update(self.replay_iter, self.global_step)
-                    self.logger.log_metrics(metrics, self.global_frame, ty='train')
-
-            # take env step
-            time_step = self.train_env.step(action)
-            episode_reward += time_step.reward
-            step_fitness.append(time_step.reward)
-            self.replay_storage.add(time_step, meta)
-            self.train_video_recorder.record(time_step.observation)
-            episode_step += 1
-            self._global_step += 1
-
 
     def train(self):
         print("\n\nStart training...\n\n")
@@ -386,21 +277,19 @@ class Workspace:
         if payload is not None:
             return payload
         # otherwise try random seed
-        attempt=15
-        while True:
-            seed = np.random.randint(1, 11)
-            payload = try_load(seed)
+        # attempt=15
+        for s in range(0, 11):
+            payload = try_load(s)
             if payload is not None:
                 return payload
-            attempt-=1
-            if not attempt:
-                raise(Exception("Cannot load from snapshot"))
+            # attempt-=1
+        raise(Exception("Cannot load from snapshot"))
         return None
 
 
-@hydra.main(config_path='.', config_name='optimize')
+@hydra.main(config_path='.', config_name='record_skills')
 def main(cfg):
-    from optimize import Workspace as W
+    from record_skills import Workspace as W
     print("\n\nMAIN\n\n")
     root_dir = Path.cwd()
     workspace = W(cfg)
@@ -408,10 +297,7 @@ def main(cfg):
     if snapshot.exists():
         print(f'resuming: {snapshot}')
         workspace.load_snapshot()
-    # workspace.optimize()
-    # workspace.train()
-    # for _ in range(10):
-    #     workspace.eval()
+    workspace.record_skills()
 
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ os.environ['MUJOCO_GL'] = 'egl'
 from pathlib import Path
 
 import hydra
+from omegaconf import OmegaConf
 import numpy as np
 import torch
 from dm_env import specs
@@ -52,7 +53,12 @@ class Workspace:
                 cfg.experiment, "finetune", cfg.agent.name, cfg.task, cfg.obs_type,
                 str(cfg.seed)
             ])
-            wandb.init(project="urlb", group=cfg.wandb_group, name=exp_name, tags=["finetune"])
+            wandb.init(
+                project="urlb", 
+                group=cfg.wandb_group, 
+                name=exp_name, 
+                tags=["finetune"],
+                config=OmegaConf.to_container(cfg))
         
         self.logger = Logger(self.work_dir,
                              use_tb=cfg.use_tb,
