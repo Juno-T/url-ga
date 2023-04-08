@@ -86,7 +86,7 @@ class Workspace:
 
         # initialize from pretrained
         if cfg.snapshot_ts > 0:
-            pretrained_agent = self.load_snapshot()['agent']
+            pretrained_agent = utils.load_snapshot(self.cfg)['agent']
             self.agent.init_from(pretrained_agent)
 
         # get meta specs
@@ -177,7 +177,10 @@ class Workspace:
             log('episode', self.global_episode)
             log('step', self.global_step)
             log('generation', self._global_generation)
-        wandb.log({'eval/skills': wandb.Histogram(self.optim.gen_skills_from_meta(meta_list))})
+        wandb.log({
+            'eval/skills': wandb.Histogram(self.optim.gen_skills_from_meta(meta_list)),
+            'eval/frame': self.global_frame,
+            })
         
     def optimize(self):
         print("\n\nStart Optimizing...\n\n")
@@ -367,48 +370,13 @@ class Workspace:
             episode_step += 1
             self._global_step += 1
 
-    def load_snapshot(self):
-        snapshot_base_dir = Path(self.cfg.snapshot_base_dir)
-        domain, _ = self.cfg.task.split('_', 1)
-        snapshot_dir = snapshot_base_dir / self.cfg.obs_type / domain / self.cfg.agent.name
-        def try_load(seed):
-            snapshot = snapshot_dir / str(
-                seed) / f'snapshot_{self.cfg.snapshot_ts}.pt'
-            print(f"\n\nTry loading snapshot from: {str(snapshot)}\n\n")
-            if not snapshot.exists():
-                return None
-            with snapshot.open('rb') as f:
-                payload = torch.load(f)
-            return payload
-
-        # try to load current seed
-        payload = try_load(self.cfg.seed)
-        if payload is not None:
-            return payload
-        # otherwise try random seed
-        attempt=15
-        while True:
-            seed = np.random.randint(1, 11)
-            payload = try_load(seed)
-            if payload is not None:
-                return payload
-            attempt-=1
-            if not attempt:
-                raise(Exception("Cannot load from snapshot"))
-        return None
-
 
 @hydra.main(config_path='.', config_name='optimize')
 def main(cfg):
     from optimize import Workspace as W
     print("\n\nMAIN\n\n")
-    root_dir = Path.cwd()
     workspace = W(cfg)
-    snapshot = root_dir / 'snapshot.pt'
-    if snapshot.exists():
-        print(f'resuming: {snapshot}')
-        workspace.load_snapshot()
-    # workspace.optimize()
+    workspace.optimize()
     # workspace.train()
     # for _ in range(10):
     #     workspace.eval()

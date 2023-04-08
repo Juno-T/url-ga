@@ -4,6 +4,7 @@ defaults:
 
 # mode
 reward_free: true
+single_skill_per_ep: true
 # task settings
 domain: walker # primal task will be infered in runtime
 obs_type: states # [states, pixels]
@@ -18,7 +19,7 @@ eval_every_frames: 10000
 num_eval_episodes: 10
 # snapshot
 snapshots: [100000, 500000, 1000000, 2000000]
-snapshot_dir: ../../../models/${obs_type}/${domain}/${agent.name}/${seed}
+snapshot_dir: ../../../models/${obs_type}/${domain}/${agent.name}/single_skill_per_ep_${single_skill_per_ep}/${agent.skill_dim}skills/${seed}
 # replay buffer
 replay_buffer_size: 1000000
 replay_buffer_num_workers: 4
@@ -32,7 +33,7 @@ save_video: true
 save_train_video: false
 use_tb: false
 use_wandb: false
-wandb_group: ${agent.name}
+wandb_group: pretrain
 # experiment
 experiment: exp
 

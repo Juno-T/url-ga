@@ -3,7 +3,8 @@ defaults:
   - override hydra/launcher: submitit_local
 
 single_skill: True
-
+# pretrain spec
+single_skill_per_ep: true
 # mode
 reward_free: False
 # task settings

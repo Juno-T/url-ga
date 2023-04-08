@@ -4,6 +4,8 @@ defaults:
 
 single_skill: True
 
+# pretrain spec
+single_skill_per_ep: true
 # mode
 reward_free: false
 # task settings

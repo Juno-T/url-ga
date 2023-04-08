@@ -2,8 +2,9 @@ import math
 import random
 import re
 import time
-
 import numpy as np
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -317,3 +318,38 @@ class PBE(object):
             reward = reward.mean(dim=1, keepdim=True)  # (b1, 1)
         reward = torch.log(reward + 1.0)
         return reward
+
+
+def load_snapshot(cfg):
+    snapshot_base_dir = Path(cfg.snapshot_base_dir)
+    domain, _ = cfg.task.split('_', 1)
+    snapshot_dir = snapshot_base_dir / \
+        cfg.obs_type / \
+        domain / \
+        cfg.agent.name / \
+        Path("single_skill_per_ep_"+str(cfg.single_skill_per_ep).capitalize(), str(cfg.agent.skill_dim)+"skills")
+
+    def try_load(seed):
+        snapshot = snapshot_dir / str(
+            seed) / f'snapshot_{cfg.snapshot_ts}.pt'
+        print(f"\nTry loading snapshot from: {str(snapshot)}")
+        if not snapshot.exists():
+            return None
+        with snapshot.open('rb') as f:
+            payload = torch.load(f)
+        return payload
+
+    # try to load current seed
+    payload = try_load(cfg.seed)
+    if payload is not None:
+        return payload
+    # otherwise try random seed
+    max_seed = 15
+    shuffled_seeds = np.random.permutation(max_seed)
+    for s in shuffled_seeds:
+        payload = try_load(s)
+        if payload is not None:
+            return payload
+        # attempt-=1
+    raise(Exception("Cannot load from snapshot"))
+    return None

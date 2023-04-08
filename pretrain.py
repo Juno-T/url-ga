@@ -10,6 +10,7 @@ os.environ['MUJOCO_GL'] = 'egl'
 from pathlib import Path
 
 import hydra
+from omegaconf import OmegaConf
 import numpy as np
 import torch
 import wandb
@@ -46,10 +47,17 @@ class Workspace:
         # create logger
         if cfg.use_wandb:
             exp_name = '_'.join([
-                cfg.experiment, cfg.agent.name, cfg.domain, cfg.obs_type,
+                cfg.experiment, "pretrain", cfg.agent.name, cfg.domain, cfg.obs_type,
                 str(cfg.seed)
             ])
-            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name)
+            tags=["pretrain", cfg.domain, str(cfg.experiment)]
+            print(exp_name, tags)
+            wandb.init(
+                project="urlb", 
+                group=cfg.wandb_group, 
+                name=exp_name, 
+                tags=tags,
+                config=OmegaConf.to_container(cfg))
 
         self.logger = Logger(self.work_dir,
                              use_tb=cfg.use_tb,
@@ -198,7 +206,8 @@ class Workspace:
                                 self.global_frame)
                 self.eval()
 
-            meta = self.agent.update_meta(meta, self.global_step, time_step)
+            if not self.cfg.single_skill_per_ep:
+                meta = self.agent.update_meta(meta, self.global_step, time_step)
             # sample action
             with torch.no_grad(), utils.eval_mode(self.agent):
                 action = self.agent.act(time_step.observation,
