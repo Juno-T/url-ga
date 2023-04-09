@@ -177,10 +177,13 @@ class Workspace:
             log('episode', self.global_episode)
             log('step', self.global_step)
             log('generation', self._global_generation)
-        wandb.log({
-            'eval/skills': wandb.Histogram(self.optim.gen_skills_from_meta(meta_list)),
-            'eval/frame': self.global_frame,
-            })
+        if self.cfg.use_wandb:
+            wandb.log({
+                'eval/skills': wandb.Histogram(self.optim.gen_skills_from_meta(meta_list)),
+                'eval/frame': self.global_frame,
+                'global_step': self.global_step,
+                'global_frame': self.global_frame,
+                })
         
     def optimize(self):
         print("\n\nStart Optimizing...\n\n")

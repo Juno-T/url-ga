@@ -119,6 +119,9 @@ class MetersGroup(object):
         data['frame'] = step
         if self.use_wandb:
             wandb_data = {prefix + '/' + key: val for key, val in data.items()}
+            if "step" in data:
+                wandb_data["global_step"] = data["step"]
+            wandb_data["global_frame"] = step
             self._dump_to_wandb(data=wandb_data)
         self._dump_to_csv(data)
         self._dump_to_console(data, prefix)
