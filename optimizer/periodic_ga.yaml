@@ -1,0 +1,15 @@
+# @package optimizer
+_target_: optimizer.periodic_ga.PeriodicGA
+name: periodic_ga
+
+agent: ???
+pop_size: 10
+elite_size: 1
+mutation_prob: 0.05
+ep_len: 1000
+device: ???
+
+max_period: 500
+min_period: 2
+max_offset: 500
+max_repeat: 10

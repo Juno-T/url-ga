@@ -29,8 +29,11 @@ class BaseSkillOptimizer():
     def get_random_meta(self, length=1000):
         return self.gen_meta_from_skills(np.random.randint(self.skill_dim, size=(length,)))
     
-    def ask(self):
+    def ask(self, seed_step=False):
         pass
 
     def tell(self, step_fitness):
+        pass
+
+    def eval_log_wandb(self, global_step, global_frame):
         pass

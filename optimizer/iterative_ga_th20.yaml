@@ -1,0 +1,16 @@
+# @package optimizer
+_target_: optimizer.iterative_ga.IterativeGA
+name: iterative_ga_th20
+
+agent: ???
+strategy: one_cover # one_cover, rand_cover, re_cover
+pop_size: 10
+elite_size: 1
+mutation_prob: 0.05
+ep_len: 1000
+device: ???
+
+
+next_window_fitness_threshold: 0.2
+num_window: 10
+gamma: 0.7
